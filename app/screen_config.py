@@ -27,11 +27,12 @@ class ScreenConfig:
         else:
             raise TypeError("Formato inválido")
 
+        win_percent = 0.8
         if w_ratio >= h_ratio:
-            width = self.screen_width * 0.6
+            width = self.screen_width * win_percent
             height = width * (h_ratio / w_ratio)
         else:
-            height = self.screen_height * 0.6
+            height = self.screen_height * win_percent
             width = height * (w_ratio / h_ratio)
 
         return int(width), int(height)

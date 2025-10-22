@@ -1,4 +1,4 @@
-from snapdl_uix import SnapDL
+from app import SnapDL
 
 if __name__ == "__main__":
-    sdl = SnapDL()
+    SnapDL()
