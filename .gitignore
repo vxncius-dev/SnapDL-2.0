@@ -1,0 +1,23 @@
+# Ignora ambiente virtual
+.venv/
+venv/
+
+# Ignora caches do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignora arquivos temporários
+*.log
+*.tmp
+
+# Ignora diretórios de build
+build/
+dist/
+*.egg-info/
+
+# Ignora configs locais
+.env
+.idea/
+.vscode/
