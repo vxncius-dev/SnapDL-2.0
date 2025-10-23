@@ -10,11 +10,6 @@ from threading import Lock
 
 
 class DownloadManager:
-    """
-    Gerenciador de downloads com yt-dlp, independente de UI.
-    Permite callbacks para atualização de progresso, conclusão e erros.
-    """
-
     def __init__(
         self,
         yt_dlp_bin: str = "yt-dlp",
@@ -28,23 +23,15 @@ class DownloadManager:
         self.yt_dlp_bin = yt_dlp_bin
         self.download_dir = download_dir or os.path.join(os.getcwd(), "downloads")
         self.temp_dir = temp_dir or self.download_dir
-
         os.makedirs(self.download_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
-
         self.items: Dict[str, Dict[str, Any]] = {}
         self.lock = Lock()
         self._pct_re = re.compile(r"(?P<pct>\d{1,3}(?:\.\d+)?)%")
-
-        # Callbacks
         self.on_progress = on_progress
         self.on_complete = on_complete
         self.on_error = on_error
         self.on_status = on_status
-
-    # ==============================================================
-    # Público
-    # ==============================================================
 
     def add_download(
         self,
@@ -54,7 +41,6 @@ class DownloadManager:
         thumbnail: str = "",
         only_audio: bool = False,
     ) -> str:
-        """Adiciona um novo download à fila e inicia automaticamente."""
         download_id = str(uuid.uuid4())
         safe_title = "".join(c for c in title if c.isalnum() or c in " ._-").strip() or download_id
         out_template = os.path.join(self.temp_dir, f"{safe_title}.%(ext)s")
@@ -166,10 +152,6 @@ class DownloadManager:
         with self.lock:
             return [dict(v) for v in self.items.values()]
 
-    # ==============================================================
-    # Interno
-    # ==============================================================
-
     def _download_worker(self, download_id: str) -> None:
         with self.lock:
             entry = self.items.get(download_id)
@@ -235,10 +217,6 @@ class DownloadManager:
             if os.path.exists(candidate):
                 return candidate
         return None
-
-    # ==============================================================
-    # Callbacks
-    # ==============================================================
 
     def _emit_progress(self, entry: Dict[str, Any]):
         if callable(self.on_progress):
