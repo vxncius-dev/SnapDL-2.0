@@ -1,3 +1,5 @@
+!!! ver pq não ta focando
+
 from os import path
 from platform import system
 from json import dumps, load
@@ -8,7 +10,6 @@ from .ffmepg_helper import FFmpegHelper
 
 DEBUG_MODE = True
 IS_MOBILE = False
-# system().lower() == "linux" and path.exists("/storage/emulated/0")
 
 
 class SnapDL:
@@ -54,80 +55,28 @@ class SnapDL:
     def log(self, mesage):
         print(f"[DEBUG] {str(mesage)}")
 
+    def on_search(self):
+        value = self.search_input.value.strip()
+        if value:
+            self.search_result = self.seach_mananger.search_youtube(value)
+            self.log(dumps(self.search_result, indent=4))
+
     def homepage(self, w):
-        def on_focus(e):
-            search_bar.border = ft.border.all(1, self.colors["primary"])
-            search_bar.update()
-
-        def on_blur(e):
-            search_bar.border = ft.border.all(1, self.colors["search_border"])
-            search_bar.update()
-
-        def on_search(e=None):
-            value = search_input.value.strip()
-            if value:
-                self.search_result = self.seach_mananger.search_youtube(value)
-                self.log(dumps(self.search_result, indent=4))
-
-        search_input = ft.TextField(
-            hint_text="Search",
-            border=ft.InputBorder.NONE,
-            hover_color=ft.Colors.TRANSPARENT,
-            bgcolor=self.colors["search_bg"],
-            cursor_color=self.colors["primary"],
-            text_style=ft.TextStyle(color=self.colors["text"], size=17),
-            hint_style=ft.TextStyle(color=self.colors["hint"]),
-            expand=True,
-            on_submit=on_search,
-            on_focus=on_focus,
-            on_blur=on_blur,
-        )
-
-        search_bar = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Icon(name=ft.Icons.DOWNLOAD, color=self.colors["icon"], size=20),
-                    search_input,
-                    ft.IconButton(
-                        icon=ft.Icons.SEARCH,
-                        icon_color=self.colors["icon"],
-                        icon_size=20,
-                        tooltip="Search",
-                        on_click=on_search,
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.START,
-            ),
-            bgcolor=self.colors["search_bg"],
-            border=ft.border.all(1, self.colors["search_border"]),
-            border_radius=50,
-            padding=ft.padding.symmetric(horizontal=15, vertical=0),
-            margin=ft.margin.symmetric(horizontal=20),
-            width=400,
-        )
-
-        def decoration(state):
-            if state:
-                return ft.DecorationImage(
-                    src="assets/background2.jpg",
-                    fit=ft.ImageFit.CONTAIN,
-                    repeat=ft.ImageRepeat.REPEAT_X,
-                )
-
-        title = ft.Text(
-            "SnapDL", color=self.colors["text"], size=45, font_family="Poppins-Bold"
-        )
+        # Ajusta largura do search_bar sem recriar o input
+        self.search_bar.width = min(400, w * 0.6)
 
         return ft.Container(
             content=ft.Column(
-                [title, search_bar],
+                [
+                    ft.Text("SnapDL", color=self.colors["text"], size=45, font_family="Poppins-Bold"),
+                    self.search_bar
+                ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=10,
                 width=w,
             ),
             bgcolor=self.colors["bg"],
-            image=decoration(True),
             expand=True,
         )
 
@@ -232,7 +181,7 @@ class SnapDL:
 
         return int(width), int(height)
 
-    def main(self, page: ft.Page):
+    async def main(self, page: ft.Page):
         self.page = page
         page.title = "SnapDL"
         page.fonts = {
@@ -251,6 +200,42 @@ class SnapDL:
         page.window.title_bar_hidden = True
         page.window.center()
         page.padding = 0
+
+        # cria input e search_bar uma vez
+        self.search_input = ft.TextField(
+            hint_text="Search",
+            border=ft.InputBorder.NONE,
+            hover_color=ft.Colors.TRANSPARENT,
+            bgcolor=self.colors["search_bg"],
+            cursor_color=self.colors["primary"],
+            text_style=ft.TextStyle(color=self.colors["text"], size=17),
+            hint_style=ft.TextStyle(color=self.colors["hint"]),
+            expand=True,
+            on_submit=lambda e: self.on_search(),
+        )
+
+        self.search_bar = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(name=ft.Icons.DOWNLOAD, color=self.colors["icon"], size=20),
+                    self.search_input,
+                    ft.IconButton(
+                        icon=ft.Icons.SEARCH,
+                        icon_color=self.colors["icon"],
+                        icon_size=20,
+                        tooltip="Search",
+                        on_click=lambda e: self.on_search(),
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.START,
+            ),
+            bgcolor=self.colors["search_bg"],
+            border=ft.border.all(1, self.colors["search_border"]),
+            border_radius=50,
+            padding=ft.padding.symmetric(horizontal=15, vertical=0),
+            margin=ft.margin.symmetric(horizontal=20),
+            width=self.width * 0.6,
+        )
 
         # render inicial
         self.current_page = self.navigator("/", self.width)
