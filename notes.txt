@@ -1,5 +1,3 @@
-!!! ver pq não ta focando
-
 from os import path
 from platform import system
 from json import dumps, load
@@ -55,30 +53,11 @@ class SnapDL:
     def log(self, mesage):
         print(f"[DEBUG] {str(mesage)}")
 
-    def on_search(self):
+    def on_search(self, e=None):
         value = self.search_input.value.strip()
         if value:
             self.search_result = self.seach_mananger.search_youtube(value)
             self.log(dumps(self.search_result, indent=4))
-
-    def homepage(self, w):
-        # Ajusta largura do search_bar sem recriar o input
-        self.search_bar.width = min(400, w * 0.6)
-
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text("SnapDL", color=self.colors["text"], size=45, font_family="Poppins-Bold"),
-                    self.search_bar
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=10,
-                width=w,
-            ),
-            bgcolor=self.colors["bg"],
-            expand=True,
-        )
 
     def setup_window(self, page, w, h, screen):
         def handle_minimize(e):
@@ -140,11 +119,6 @@ class SnapDL:
         else:
             return ft.WindowDragArea(content_base, expand=True, maximizable=False)
 
-    def navigator(self, route="/", w=800):
-        self.current_route = route
-        if route == "/":
-            return self.setup_window(self.page, w, self.height, self.homepage(w))
-
     def aspect_ratio_from_page(self, page, fmt: str = "wide", percent: float = 0.8):
         presets = {
             "square": (1, 1),
@@ -181,7 +155,73 @@ class SnapDL:
 
         return int(width), int(height)
 
-    async def main(self, page: ft.Page):
+    def create_home_view(self):
+        self.search_input = ft.TextField(
+            hint_text="Search",
+            border=ft.InputBorder.NONE,
+            hover_color=ft.Colors.TRANSPARENT,
+            bgcolor=self.colors["search_bg"],
+            cursor_color=self.colors["primary"],
+            text_style=ft.TextStyle(color=self.colors["text"], size=17),
+            hint_style=ft.TextStyle(color=self.colors["hint"]),
+            expand=True,
+            on_submit=self.on_search,
+        )
+
+        self.search_bar = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(name=ft.Icons.DOWNLOAD, color=self.colors["icon"], size=20),
+                    self.search_input,
+                    ft.IconButton(
+                        icon=ft.Icons.SEARCH,
+                        icon_color=self.colors["icon"],
+                        icon_size=20,
+                        tooltip="Search",
+                        on_click=self.on_search,
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.START,
+            ),
+            bgcolor=self.colors["search_bg"],
+            border=ft.border.all(1, self.colors["search_border"]),
+            border_radius=50,
+            padding=ft.padding.symmetric(horizontal=15, vertical=0),
+            margin=ft.margin.symmetric(horizontal=20),
+            width=self.width * 0.4,
+        )
+
+        column = ft.Column(
+            [
+                ft.Text("SnapDL", color=self.colors["text"], size=45, font_family="Poppins-Bold"),
+                self.search_bar,
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=10,
+            width=self.width,
+        )
+
+        container = ft.Container(
+            content=column,
+            bgcolor=self.colors["bg"],
+            expand=True,
+        )
+
+        return ft.View("/", [self.setup_window(self.page, self.width, self.height, container)])
+
+    def navigate_to(self, route="/"):
+        self.current_route = route
+        self.page.views.clear()
+        if route == "/":
+            self.page.views.append(self.create_home_view())
+        # Aqui você pode adicionar mais views para outras rotas
+        self.page.update()
+        # Garantir foco no input
+        if hasattr(self, "search_input"):
+            self.search_input.focus()
+
+    def main(self, page: ft.Page):
         self.page = page
         page.title = "SnapDL"
         page.fonts = {
@@ -201,54 +241,14 @@ class SnapDL:
         page.window.center()
         page.padding = 0
 
-        # cria input e search_bar uma vez
-        self.search_input = ft.TextField(
-            hint_text="Search",
-            border=ft.InputBorder.NONE,
-            hover_color=ft.Colors.TRANSPARENT,
-            bgcolor=self.colors["search_bg"],
-            cursor_color=self.colors["primary"],
-            text_style=ft.TextStyle(color=self.colors["text"], size=17),
-            hint_style=ft.TextStyle(color=self.colors["hint"]),
-            expand=True,
-            on_submit=lambda e: self.on_search(),
-        )
+        # Inicia na view principal
+        self.navigate_to("/")
 
-        self.search_bar = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Icon(name=ft.Icons.DOWNLOAD, color=self.colors["icon"], size=20),
-                    self.search_input,
-                    ft.IconButton(
-                        icon=ft.Icons.SEARCH,
-                        icon_color=self.colors["icon"],
-                        icon_size=20,
-                        tooltip="Search",
-                        on_click=lambda e: self.on_search(),
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.START,
-            ),
-            bgcolor=self.colors["search_bg"],
-            border=ft.border.all(1, self.colors["search_border"]),
-            border_radius=50,
-            padding=ft.padding.symmetric(horizontal=15, vertical=0),
-            margin=ft.margin.symmetric(horizontal=20),
-            width=self.width * 0.6,
-        )
-
-        # render inicial
-        self.current_page = self.navigator("/", self.width)
-        page.add(self.current_page)
-
-        # atualização ao redimensionar
+        # Atualização ao redimensionar
         def on_resize(e):
             w = page.window.width
             h = page.window.height
             self.width, self.height = w, h
-            page.controls.clear()
-            self.current_page = self.navigator("/", w)
-            page.add(self.current_page)
-            page.update()
+            self.navigate_to(self.current_route)
 
         page.on_resized = on_resize
