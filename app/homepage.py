@@ -1,6 +1,7 @@
 import flet as ft
 from json import dumps
 
+
 def homepage(self, w):
     def on_focus(e):
         search_bar.border = ft.border.all(1, self.colors["primary"])
@@ -14,7 +15,7 @@ def homepage(self, w):
         value = search_input.value.strip()
         if value:
             self.search_result = self.seach_mananger.search_youtube(value)
-            self.log(dumps(self.search_result, indent=4))
+            # self.log(dumps(self.search_result, indent=4))
             self.page.controls.clear()
             self.current_route = "/results"
             self.current_page = self.navigator(self.current_route, w)
@@ -78,7 +79,7 @@ def homepage(self, w):
             spacing=10,
             width=w,
         ),
-        padding=ft.padding.only(bottom=50),
+        padding=ft.padding.only(bottom=0 if self.IS_MOBILE else 50),
         bgcolor=self.colors["bg"],
         image=decoration(False),
         expand=True,

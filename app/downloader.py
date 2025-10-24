@@ -1,10 +1,9 @@
 import os
 import re
 import uuid
-import time
-import shutil
 import threading
 import subprocess
+import shutil
 from typing import Any, Dict, List, Optional, Callable
 from threading import Lock
 
@@ -12,7 +11,9 @@ from threading import Lock
 class DownloadManager:
     def __init__(
         self,
-        yt_dlp_bin: str = "yt-dlp",
+        yt_dlp_bin: Optional[str] = None,
+        base_dir: Optional[str] = None,
+        binaries_subdir: str = "binaries",
         download_dir: Optional[str] = None,
         temp_dir: Optional[str] = None,
         on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -20,11 +21,23 @@ class DownloadManager:
         on_error: Optional[Callable[[Dict[str, Any]], None]] = None,
         on_status: Optional[Callable[[Dict[str, Any]], None]] = None,
     ):
-        self.yt_dlp_bin = yt_dlp_bin
-        self.download_dir = download_dir or os.path.join(os.getcwd(), "downloads")
-        self.temp_dir = temp_dir or self.download_dir
+        self.base_dir = base_dir or os.getcwd()
+        self.binaries_subdir = binaries_subdir
+
+        # Detecta ambiente
+        self.is_android = self._is_android()
+        self.app_bin_dir = self._resolve_app_bin_dir()
+
+        # Resolve yt-dlp correto
+        self.yt_dlp_bin = yt_dlp_bin or self._detect_yt_dlp_path()
+
+        # Diretórios de download
+        self.download_dir = download_dir or self._resolve_download_dir()
+        self.temp_dir = temp_dir or self._resolve_temp_dir()
         os.makedirs(self.download_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
+
+        # Controle e eventos
         self.items: Dict[str, Dict[str, Any]] = {}
         self.lock = Lock()
         self._pct_re = re.compile(r"(?P<pct>\d{1,3}(?:\.\d+)?)%")
@@ -32,6 +45,73 @@ class DownloadManager:
         self.on_complete = on_complete
         self.on_error = on_error
         self.on_status = on_status
+
+    # ==============================================================
+    # DETECÇÃO DE AMBIENTE E BINÁRIO
+    # ==============================================================
+
+    def _is_android(self) -> bool:
+        return os.path.exists("/storage/emulated/0")
+
+    def _resolve_app_bin_dir(self) -> str:
+        if self._is_android():
+            path = "/storage/emulated/0/Android/data/com.vxncius.snapdl/files/bin"
+            os.makedirs(path, exist_ok=True)
+            return path
+        return os.path.join(self.base_dir, self.binaries_subdir)
+
+    def _detect_yt_dlp_path(self) -> str:
+        """Tenta encontrar o yt-dlp funcional no sistema ou embutido."""
+        embedded_path = os.path.join(self.base_dir, self.binaries_subdir, "yt-dlp")
+
+        # Android usa o binário embutido copiado para pasta executável
+        if self._is_android():
+            android_bin = os.path.join(self.app_bin_dir, "yt-dlp")
+            if not os.path.exists(android_bin) and os.path.exists(embedded_path):
+                shutil.copy(embedded_path, android_bin)
+                os.chmod(android_bin, 0o755)
+            return android_bin
+
+        # Desktop: tenta no PATH
+        try:
+            subprocess.run(["yt-dlp", "--version"], capture_output=True, check=True)
+            return "yt-dlp"
+        except Exception:
+            pass
+
+        # Se falhar, tenta o embutido
+        if os.path.exists(embedded_path):
+            os.chmod(embedded_path, 0o755)
+            return embedded_path
+
+        raise FileNotFoundError(
+            "yt-dlp não encontrado nem no PATH nem nos binários locais."
+        )
+
+    # ==============================================================
+    # RESOLUÇÃO DE DIRETÓRIOS
+    # ==============================================================
+
+    def _resolve_download_dir(self) -> str:
+        """Define o diretório padrão de download."""
+        if self._is_android():
+            base = "/storage/emulated/0/Download/SnapDL"
+        else:
+            base = os.path.join(os.path.expanduser("~"), "Downloads", "SnapDL")
+        os.makedirs(base, exist_ok=True)
+        return base
+
+    def _resolve_temp_dir(self) -> str:
+        """Usa o mesmo diretório de download no desktop, e pasta app no Android."""
+        if self._is_android():
+            tmp = os.path.join(self.app_bin_dir, "temp")
+            os.makedirs(tmp, exist_ok=True)
+            return tmp
+        return self._resolve_download_dir()
+
+    # ==============================================================
+    # CORE DE DOWNLOADS
+    # ==============================================================
 
     def add_download(
         self,
@@ -42,7 +122,10 @@ class DownloadManager:
         only_audio: bool = False,
     ) -> str:
         download_id = str(uuid.uuid4())
-        safe_title = "".join(c for c in title if c.isalnum() or c in " ._-").strip() or download_id
+        safe_title = (
+            "".join(c for c in title if c.isalnum() or c in " ._-").strip()
+            or download_id
+        )
         out_template = os.path.join(self.temp_dir, f"{safe_title}.%(ext)s")
 
         entry = {
@@ -75,82 +158,16 @@ class DownloadManager:
             if not entry or entry["status"] in ("downloading", "completed"):
                 return
             entry["status"] = "downloading"
-
         self._emit_status(entry)
-        t = threading.Thread(target=self._download_worker, args=(download_id,), daemon=True)
+        t = threading.Thread(
+            target=self._download_worker, args=(download_id,), daemon=True
+        )
         entry["thread"] = t
         t.start()
 
-    def pause_download(self, download_id: str) -> bool:
-        with self.lock:
-            entry = self.items.get(download_id)
-            if not entry:
-                return False
-            proc = entry.get("process")
-            if not proc:
-                return False
-            try:
-                proc.terminate()
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-            entry["status"] = "paused"
-            entry["process"] = None
-        self._emit_status(entry)
-        return True
-
-    def stop_download(self, download_id: str, clean_partial: bool = False) -> bool:
-        with self.lock:
-            entry = self.items.get(download_id)
-            if not entry:
-                return False
-            proc = entry.get("process")
-            entry["status"] = "stopped"
-            entry["process"] = None
-        if proc:
-            try:
-                proc.terminate()
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-        if clean_partial:
-            base = entry["output_template"].replace("%(ext)s", "")
-            for fname in os.listdir(self.download_dir):
-                if fname.startswith(os.path.basename(base)):
-                    try:
-                        os.remove(os.path.join(self.download_dir, fname))
-                    except Exception:
-                        pass
-        self._emit_status(entry)
-        return True
-
-    def resume_download(self, download_id: str) -> None:
-        with self.lock:
-            entry = self.items.get(download_id)
-            if not entry or entry["status"] not in ("paused", "stopped", "error"):
-                return
-            entry["status"] = "queued"
-        self.start_download(download_id)
-
-    def remove_entry(self, download_id: str) -> None:
-        with self.lock:
-            entry = self.items.pop(download_id, None)
-        if not entry:
-            return
-        proc = entry.get("process")
-        if proc:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-
-    def get_all(self) -> List[Dict[str, Any]]:
-        with self.lock:
-            return [dict(v) for v in self.items.values()]
+    # ==============================================================
+    # WORKER
+    # ==============================================================
 
     def _download_worker(self, download_id: str) -> None:
         with self.lock:
@@ -169,17 +186,19 @@ class DownloadManager:
         cmd += ["-o", out_template, url]
 
         try:
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            p = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
             with self.lock:
                 entry["process"] = p
 
-            while True:
-                line = p.stdout.readline()
-                if line == "" and p.poll() is not None:
-                    break
+            for line in p.stdout:
                 if not line:
                     continue
-
                 m = self._pct_re.search(line)
                 if m:
                     try:
@@ -193,22 +212,40 @@ class DownloadManager:
             ret = p.wait()
             with self.lock:
                 entry["process"] = None
-                if ret == 0:
-                    entry["final_path"] = self._find_output(out_template)
+
+            if ret == 0:
+                final_path = self._find_output(out_template)
+                if final_path:
+                    # Se Android e não puder gravar direto, move o arquivo
+                    if self._is_android() and not os.access(self.download_dir, os.W_OK):
+                        dest = os.path.join(
+                            self.download_dir, os.path.basename(final_path)
+                        )
+                        shutil.move(final_path, dest)
+                        final_path = dest
+
+                    entry["final_path"] = final_path
                     entry["status"] = "completed"
                     entry["progress"] = 100.0
                     self._emit_complete(entry)
                 else:
                     entry["status"] = "error"
-                    entry["error"] = f"yt-dlp exit {ret}"
+                    entry["error"] = "Arquivo final não encontrado"
                     self._emit_error(entry)
+            else:
+                entry["status"] = "error"
+                entry["error"] = f"yt-dlp exit {ret}"
+                self._emit_error(entry)
 
         except Exception as exc:
             with self.lock:
-                entry["process"] = None
                 entry["status"] = "error"
                 entry["error"] = str(exc)
             self._emit_error(entry)
+
+    # ==============================================================
+    # AUXILIARES
+    # ==============================================================
 
     def _find_output(self, out_template: str) -> Optional[str]:
         base = out_template.replace("%(ext)s", "")
@@ -217,6 +254,10 @@ class DownloadManager:
             if os.path.exists(candidate):
                 return candidate
         return None
+
+    # ==============================================================
+    # CALLBACKS
+    # ==============================================================
 
     def _emit_progress(self, entry: Dict[str, Any]):
         if callable(self.on_progress):
